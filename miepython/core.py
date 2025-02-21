@@ -356,8 +356,6 @@ def S1_S2(m, x, mu, norm="albedo", n_pole=0 , out = None):
     # out must be a tuple of length 2 or None.
     S1, S2 = (None,None) if out is None else out
     
-    if np.imag(m) > 0:  # ensure imaginary part of refractive index is negative
-        m = np.conj(m)    
 
     # make sure m, mu and x are arrays (even if they are scalars)
     mu = np.asarray(mu)
