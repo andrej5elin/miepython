@@ -35,7 +35,7 @@ Normalized Mie scattering intensities for angles mu=cos(theta)::
     mie.i_unpolarized(m, x, mu)
 """
 import numpy as np
-from miepython import _an_bn, _cn_dn, _S1_S2, _D_calc
+from miepython import _an_bn, _cn_dn, _S1_S2, _D_calc, _mie
 
 
 # not really needed but included for clarity
@@ -197,167 +197,7 @@ def coefficients(m, x, n_pole=0, internal=False):
     return a, b
 
 
-def _small_conducting_mie(_m, x):
-    """
-    Calculate the efficiencies for a small conducting spheres.
-
-    Typically used for small conducting spheres where x < 0.1 and
-    m.real == 0
-
-    Args:
-        _m: the complex index of refraction of the sphere (unused)
-        x: the size parameter of the sphere
-
-    Returns:
-        qext: the total extinction efficiency
-        qsca: the scattering efficiency
-        qback: the backscatter efficiency
-        g: the average cosine of the scattering phase function
-    """
-    ahat1 = complex(0, 2.0 / 3.0 * (1 - 0.2 * x**2))
-    ahat1 /= complex(1 - 0.5 * x**2, 2.0 / 3.0 * x**3)
-
-    bhat1 = complex(0.0, (x**2 - 10.0) / 30.0)
-    bhat1 /= complex(1 + 0.5 * x**2, -(x**3) / 3.0)
-    ahat2 = complex(0.0, x**2 / 30.0)
-    bhat2 = complex(0.0, -(x**2) / 45.0)
-
-    qsca = x**4 * (
-        6 * np.abs(ahat1) ** 2 + 6 * np.abs(bhat1) ** 2 + 10 * np.abs(ahat2) ** 2 + 10 * np.abs(bhat2) ** 2
-    )
-    qext = qsca
-    g = ahat1.imag * (ahat2.imag + bhat1.imag)
-    g += bhat2.imag * (5.0 / 9.0 * ahat2.imag + bhat1.imag)
-    g += ahat1.real * bhat1.real
-    g *= 6 * x**4 / qsca
-
-    qback = 9 * x**4 * np.abs(ahat1 - bhat1 - 5 / 3 * (ahat2 - bhat2)) ** 2
-
-    return qext, qsca, qback, g
-
-
-def _small_mie(m, x):
-    """
-    Calculate the efficiencies for a small sphere.
-
-    Typically used for small spheres where x<0.1
-
-    Args:
-        m: the complex index of refraction of the sphere
-        x: the size parameter of the sphere
-
-    Returns:
-        qext: the total extinction efficiency
-        qsca: the scattering efficiency
-        qback: the backscatter efficiency
-        g: the average cosine of the scattering phase function
-    """
-    m2 = m * m
-    x2 = x * x
-
-    D = m2 + 2 + (1 - 0.7 * m2) * x2
-    D -= (8 * m**4 - 385 * m2 + 350) * x**4 / 1400.0
-    D += 2j * (m2 - 1) * x**3 * (1 - 0.1 * x2) / 3
-    ahat1 = 2j * (m2 - 1) / 3 * (1 - 0.1 * x2 + (4 * m2 + 5) * x**4 / 1400) / D
-
-    bhat1 = 1j * x2 * (m2 - 1) / 45 * (1 + (2 * m2 - 5) / 70 * x2)
-    bhat1 /= 1 - (2 * m2 - 5) / 30 * x2
-
-    ahat2 = 1j * x2 * (m2 - 1) / 15 * (1 - x2 / 14)
-    ahat2 /= 2 * m2 + 3 - (2 * m2 - 7) / 14 * x2
-
-    T = np.abs(ahat1) ** 2 + np.abs(bhat1) ** 2 + 5 / 3 * np.abs(ahat2) ** 2
-    temp = ahat2 + bhat1
-    g = (ahat1 * temp.conjugate()).real / T
-
-    qsca = 6 * x**4 * T
-
-    if m.imag == 0:
-        qext = qsca
-    else:
-        qext = 6 * x * (ahat1 + bhat1 + 5 * ahat2 / 3).real
-
-    sback = 1.5 * x**3 * (ahat1 - bhat1 - 5 * ahat2 / 3)
-    qback = 4 * np.abs(sback) ** 2 / x2
-
-    return qext, qsca, qback, g
-
-
-def _mie_scalar(m, x, n_pole=0, e_field=True):
-    """
-    Calculate the efficiencies for a sphere when both m and x are scalars.
-
-    Args:
-        m: the complex index of refraction of the sphere
-        x: the size parameter of the sphere
-        n_pole: a non-zero value returns the contribution by the n_pole multipole
-        e_field: Electric (True) or Magnetic Field otherwise
-
-    Returns:
-        qext: the total extinction efficiency
-        qsca: the scattering efficiency
-        qback: the backscatter efficiency
-        g: the average cosine of the scattering phase function
-    """
-    # case when sphere matches its environment
-    if abs(m.real - 1) <= 1e-8 and abs(m.imag) < 1e-8:
-        return 0, 0, 0, 0
-
-    # small conducting spheres --- see Wiscombe
-    if m.real == 0 and x < 0.1 and n_pole == 0:
-        return _small_conducting_mie(m, x)
-
-    if m.real > 0.0 and np.abs(m) * x < 0.1 and n_pole == 0:
-        return _small_mie(m, x)
-
-    # sometimes m=0 is used to signal perfectly conducting sphere
-    if abs(m.real) < 1e-8 and abs(m.imag) < 1e-8:
-        m = 1 - 10000j
-
-    a, b = an_bn(m, x, n_pole)
-
-    if n_pole == 0:
-        n = np.arange(1, len(a) + 1)
-        cn = 2.0 * n + 1.0
-
-        qext = 2 * np.sum(cn * (a.real + b.real)) / x**2
-
-        if m.imag == 0:
-            qsca = qext
-        else:
-            qsca = 2 * np.sum(cn * (np.abs(a) ** 2 + np.abs(b) ** 2)) / x**2
-
-        qback = np.abs(np.sum((-1) ** n * cn * (a - b))) ** 2 / x**2
-
-        c1n = n * (n + 2) / (n + 1)
-        c2n = cn / n / (n + 1)
-        asy1 = c1n[:-1] * (a[:-1] * a[1:].conjugate() + b[:-1] * b[1:].conjugate()).real
-        asy2 = c2n[:-1] * (a[:-1] * b[:-1].conjugate()).real
-        g = 4 * np.sum(asy1 + asy2) / qsca / x**2
-
-    else:
-        cn = 2.0 * n_pole + 1
-        c1n = n_pole * (n_pole + 2) / (n_pole + 1)
-        if e_field:
-            qext = 2 * cn * a.real / x**2
-            qsca = 2 * cn * np.abs(a) ** 2 / x**2
-            qback = qsca / 2
-            g = None
-        else:
-            qext = 2 * cn * b.real / x**2
-            qsca = 2 * cn * np.abs(b) ** 2 / x**2
-            qback = qsca / 2
-            g = None
-
-    return qext, qsca, qback, g
-
-@np.vectorize(signature = "(),()->(),(),(),()", excluded = {2, 'n_pole', 3, "e_field"})
-def _mie_vectorized(m, x, n_pole=0, e_field=True):
-    """Vectorized version of _mie_scalar"""
-    return _mie_scalar(m,x,n_pole,e_field)
-
-
-def efficiencies_mx(m, x, n_pole=0, field="Electric"):
+def efficiencies_mx(m, x, n_pole=0, field="Electric" , out = None):
     """
     Computes scattering and extinction efficiencies for a spherical particle using Mie theory.
 
@@ -422,39 +262,16 @@ def efficiencies_mx(m, x, n_pole=0, field="Electric"):
         m = np.conj(m) if np.imag(m) > 0 else m
     else:
         m = np.where(np.imag(m) > 0, np.conj(m), m)
-
-    mlen = 0
-    if hasattr(m, "__len__"):
-        mlen = len(m)
-
-    xlen = 0
-    if hasattr(x, "__len__"):
-        xlen = len(x)
-
-    if mlen == 0 and xlen == 0:
-        return _mie_scalar(m, x, n_pole)
-
-    if xlen > 0 and mlen > 0 and xlen != mlen:
-        raise RuntimeError("m and x arrays to mie must be same length")
-
-    thelen = max(xlen, mlen)
-    qext = np.empty(thelen, dtype=np.float64)
-    qsca = np.empty(thelen, dtype=np.float64)
-    qback = np.empty(thelen, dtype=np.float64)
-    g = np.empty(thelen, dtype=np.float64)
-
-    mm = m
-    xx = x
-    for i in range(thelen):
-        if mlen > 0:
-            mm = m[i]
-
-        if xlen > 0:
-            xx = x[i]
-
-        qext[i], qsca[i], qback[i], g[i] = _mie_scalar(mm, xx, n_pole)
-
+    
+    if field == "Electric":
+        with np.errstate(all='ignore'): 
+            qext, qsca, qback, g = _mie(m, x, n_pole,1)
+    else:
+        with np.errstate(all='ignore'): 
+            qext, qsca, qback, g = _mie(m, x, n_pole,0)
+    
     return qext, qsca, qback, g
+
 
 
 def normalization_factor(m, x, norm_str):
@@ -482,7 +299,8 @@ def normalization_factor(m, x, norm_str):
         factor = x * np.sqrt(np.pi)
 
     else:
-        qext, qsca, _, _ = _mie_vectorized(m, x, 0)
+        with np.errstate(all='ignore'): 
+            qext, qsca, _, _ = _mie(m, x, 0, 1)
 
         if norm in ["a", "albedo"]:
             factor = x * np.sqrt(np.pi * qext)
