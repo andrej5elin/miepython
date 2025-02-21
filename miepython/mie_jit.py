@@ -11,7 +11,11 @@ __all__ = (
     "_S1_S2",
 )
 
-USE_FASTMATH = os.environ.get("MIEPYTHON_USE_FASTMATH", "1").lower() == "1"
+#: whether to use fatsmath option in jitted finctions
+USE_FASTMATH = os.environ.get("MIEPYTHON_FASTMATH", "1").lower() == "1"
+
+#: numba target option for vectorize and guvectorize functions
+NB_TARGET = os.environ.get("MIEPYTHON_TARGET", "parallel").lower()
 
 
 @njit((complex128, int64), cache=True, fastmath = USE_FASTMATH)
@@ -296,7 +300,7 @@ def _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2):
         S2[k] = np.conjugate(s2)/normalization
         
 @guvectorize([(complex128[:], float64[:], float64[:], int64[:], float64[:], complex128[:], complex128[:])],
-             "(),(),(n),(),()->(n),(n)", cache=True, target = "parallel")
+             "(),(),(n),(),()->(n),(n)", cache=True, target = NB_TARGET)
 def _S1_S2(m, x, mu, n_pole, normalization, S1, S2):
     """guvectorize version of __S1_S2"""
     _S1_S2_scalar(m[0], x[0], mu, n_pole[0], normalization[0], S1, S2)
@@ -461,8 +465,9 @@ def _mie_scalar(m, x, n_pole, e_field):
     return qext, qsca, qback, g
 
 @guvectorize([(complex128[:], float64[:],  int64[:],  int64[:], float64[:], float64[:], float64[:],float64[:])],
-             "(),(),(),()->(),(),(),()", cache=True, target = "parallel")
+             "(),(),(),()->(),(),(),()", cache=True, target = NB_TARGET, fastmath = USE_FASTMATH)
 def _mie(m, x, n_pole, e_field, qext, qsca,qback,g):
+    """Vectorized version of _mie_scalar"""
     out = _mie_scalar(m[0],x[0],n_pole[0],e_field[0])
     qext[0] = out[0]
     qsca[0] = out[1]
