@@ -351,6 +351,11 @@ def _mie_scalar(m, x, n_pole=0, e_field=True):
 
     return qext, qsca, qback, g
 
+@np.vectorize(signature = "(),()->(),(),(),()", excluded = {2, 'n_pole', 3, "e_field"})
+def _mie_vectorized(m, x, n_pole=0, e_field=True):
+    """Vectorized version of _mie_scalar"""
+    return _mie_scalar(m,x,n_pole,e_field)
+
 
 def efficiencies_mx(m, x, n_pole=0, field="Electric"):
     """
@@ -477,7 +482,7 @@ def normalization_factor(m, x, norm_str):
         factor = x * np.sqrt(np.pi)
 
     else:
-        qext, qsca, _, _ = _mie_scalar(m, x, 0)
+        qext, qsca, _, _ = _mie_vectorized(m, x, 0)
 
         if norm in ["a", "albedo"]:
             factor = x * np.sqrt(np.pi * qext)
@@ -499,7 +504,7 @@ def normalization_factor(m, x, norm_str):
     return factor
 
 
-def S1_S2(m, x, mu, norm="albedo", n_pole=0):
+def S1_S2(m, x, mu, norm="albedo", n_pole=0 , out = None):
     """
     Calculate the scattering amplitude functions for spheres.
 
@@ -519,26 +524,61 @@ def S1_S2(m, x, mu, norm="albedo", n_pole=0):
         mu: the angles, cos(theta), to calculate scattering amplitudes
         norm: (optional) string describing scattering function normalization
         n_pole: return n_pole term from series (default=0 means include all terms)
+        out : the output arrays tuple (optional).
 
     Returns:
         S1, S2: the scattering amplitudes at each angle mu [sr**(-0.5)]
+        
+        
+    Notes:
+        This is a generalized universal function. 
+        Numpy broadcasting rules apply over the first three positional 
+        arguments with the following signature: '(),(),(n)->(n),(n)'
     """
+    # out must be a tuple of length 2 or None.
+    S1, S2 = (None,None) if out is None else out
+    
     if np.imag(m) > 0:  # ensure imaginary part of refractive index is negative
-        m = np.conj(m)
+        m = np.conj(m)    
 
-    if np.isscalar(mu):
-        mu_array = np.array([mu], dtype=float)
-        S1, S2 = _S1_S2(m, x, mu_array, n_pole)
+    # make sure m, mu and x are arrays (even if they are scalars)
+    mu = np.asarray(mu)
+    x = np.asarray(x)
+    m = np.asarray(m)
+    n_pole = np.asarray(n_pole)
+    
+    # ensure imaginary part of the refractive index is negative
+    if np.isscalar(m):
+        m = np.conj(m) if np.imag(m) > 0 else m
     else:
-        S1, S2 = _S1_S2(m, x, mu, n_pole)
+        m = np.where(np.imag(m) > 0, np.conj(m), m)
 
+    # normalization is part of S1,S2 calculation, so we compute it first
     normalization = normalization_factor(m, x, norm)
-
-    S1 /= normalization
-    S2 /= normalization
-
-    return S1, S2
-
+    
+    # enforce 1D
+    if mu.ndim == 0:
+        mu = mu.reshape((1,)) 
+        
+    # numba has issues dealing with vectorize and _S1_S2 prints RuntimeWarnings.
+    # this is an expected behavior, see:   
+    # https://numba.pydata.org/numba-doc/dev/reference/fpsemantics.html
+    
+    # When calling a ufunc created with vectorize(), Numpy will determine 
+    # whether an error occurred by examining the FPU error word. It may 
+    # then print out a warning or raise an exception (such as RuntimeWarning: 
+    # divide by zero encountered), depending on the current error handling settings.
+    # Depending on how LLVM optimized the ufunc’s code, however, some 
+    # spurious warnings or errors may appear. If you get caught by this issue, 
+    # we recommend you call numpy.seterr() to change Numpy’s error handling settings, 
+    # or the numpy.errstate context manager to switch them temporarily:
+    
+    # remove all warnings to deal with numba floating-point pitfalls
+    with np.errstate(all='ignore'): 
+        S1,S2 = _S1_S2(m, x, mu, n_pole, normalization, out = (S1,S2))
+        
+    return S1,S2
+    
 
 def phase_matrix(m, x, mu, norm="albedo", n_pole=0):
     """
@@ -580,7 +620,7 @@ def phase_matrix(m, x, mu, norm="albedo", n_pole=0):
     m2 = (s2 * s2_star).real
     s21 = (0.5 * (s1 * s2_star + s2 * s1_star)).real
     d21 = (-0.5j * (s1 * s2_star - s2 * s1_star)).real
-    phase = np.zeros(shape=(4, 4, mu.size))
+    phase = np.zeros(shape=(4, 4) + s1.shape)
     phase[0, 0] = 0.5 * (m2 + m1)
     phase[0, 1] = 0.5 * (m2 - m1)
     phase[1, 0] = phase[0, 1]

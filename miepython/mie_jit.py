@@ -1,10 +1,9 @@
 """
 Low-level Mie calculations that use numba.
 """
-
+import os
 import numpy as np
-from numba import njit, complex128, float64, int64
-
+from numba import njit, complex128, float64, int64, guvectorize
 __all__ = (
     "_D_calc",
     "_an_bn",
@@ -12,8 +11,10 @@ __all__ = (
     "_S1_S2",
 )
 
+USE_FASTMATH = os.environ.get("MIEPYTHON_USE_FASTMATH", "1").lower() == "1"
 
-@njit((complex128, int64), cache=True)
+
+@njit((complex128, int64), cache=True, fastmath = USE_FASTMATH)
 def _Lentz_Dn(z, N):
     """
     Compute the logarithmic derivative of the Ricatti-Bessel function.
@@ -46,7 +47,7 @@ def _Lentz_Dn(z, N):
     return -N / z + runratio
 
 
-@njit((complex128, int64, complex128[:]), cache=True)
+@njit((complex128, int64, complex128[:]), cache=True, fastmath = USE_FASTMATH)
 def _D_downwards(z, N, D):
     """
     Compute the logarithmic derivative by downwards recurrence.
@@ -62,7 +63,7 @@ def _D_downwards(z, N, D):
         D[n - 1] = last_D
 
 
-@njit((complex128, int64, complex128[:]), cache=True)
+@njit((complex128, int64, complex128[:]), cache=True, fastmath = USE_FASTMATH)
 def _D_upwards(z, N, D):
     """
     Compute the logarithmic derivative by upwards recurrence.
@@ -78,7 +79,7 @@ def _D_upwards(z, N, D):
         D[n] = 1 / (n / z - D[n - 1]) - n / z
 
 
-@njit((complex128, float64, int64), cache=True)
+@njit((complex128, float64, int64), cache=True, fastmath = USE_FASTMATH)
 def _D_calc(m, x, N):
     """
     Compute the logarithmic derivative of ψ_n(z) using the best method.
@@ -100,7 +101,7 @@ def _D_calc(m, x, N):
     """
     n = m.real
     kappa = np.abs(m.imag)
-    D = np.zeros(N + 1, dtype=np.complex128)
+    D = np.zeros(N + 1, dtype = np.complex128)
     mx = np.complex128(m * x)  # ensure complex
 
     if n < 1 or n > 10 or kappa > 10 or x * kappa >= 3.9 - 10.8 * n + 13.78 * n**2:
@@ -110,7 +111,7 @@ def _D_calc(m, x, N):
     return D[1:]
 
 
-@njit((complex128, float64, int64), cache=True)
+@njit((complex128, float64, int64), cache=True, fastmath = USE_FASTMATH)
 def _an_bn(m, x, n_pole):
     """
     Compute arrays of Mie coefficients a_n and b_n for a sphere.
@@ -142,11 +143,14 @@ def _an_bn(m, x, n_pole):
 
     a = np.zeros(nstop, dtype=np.complex128)
     b = np.zeros(nstop, dtype=np.complex128)
+    
+    sin_x = np.sin(x)
+    cos_x = np.cos(x)
 
-    psi_nm1 = np.sin(x)  # nm1 = n-1 = 0
-    psi_n = psi_nm1 / x - np.cos(x)
-    xi_nm1 = np.complex128(psi_nm1 + 1j * np.cos(x))
-    xi_n = np.complex128(psi_n + 1j * (np.cos(x) / x + np.sin(x)))
+    psi_nm1 = sin_x  # nm1 = n-1 = 0
+    psi_n = psi_nm1 / x - cos_x
+    xi_nm1 = np.complex128(psi_nm1 + 1j * cos_x)
+    xi_n = np.complex128(psi_n + 1j * (cos_x / x + sin_x))
 
     if m.real > 0.0:
         D = _D_calc(m, x, nstop + 1)
@@ -180,7 +184,7 @@ def _an_bn(m, x, n_pole):
     return np.conjugate(a), np.conjugate(b)
 
 
-@njit((complex128, float64, int64), fastmath=True)
+@njit((complex128, float64, int64), fastmath = USE_FASTMATH)
 def _cn_dn(m, x, n_pole):
     """
     Calculate Mie coefficients c_n and d_n for the internal field of a sphere.
@@ -204,17 +208,21 @@ def _cn_dn(m, x, n_pole):
 
     c = np.zeros(nstop, dtype=np.complex128)
     d = np.zeros(nstop, dtype=np.complex128)
+    
+    # so that we compute cos(x) and sin(x) only once
+    sin_x = np.sin(x) 
+    cos_x = np.cos(x)
 
     # no need to calculate anything when sphere is perfectly conducting
     if m.real > 0.0 and not np.isinf(m.real) or not np.isinf(m.imag):
-        psi_nm1 = np.sin(x)  # nm1 = n-1 = 0
-        psi_n = psi_nm1 / x - np.cos(x)
+        psi_nm1 = sin_x  # nm1 = n-1 = 0
+        psi_n = psi_nm1 / x - cos_x
 
         psi_nm1_mx = np.sin(mx)  # nm1 = n-1 = 0
         psi_n_mx = psi_nm1_mx / mx - np.cos(mx)
 
-        xi_nm1 = np.complex128(psi_nm1 + 1j * np.cos(x))
-        xi_n = np.complex128(psi_n + 1j * (np.cos(x) / x + np.sin(x)))
+        xi_nm1 = np.complex128(psi_nm1 + 1j * cos_x)
+        xi_n = np.complex128(psi_n + 1j * (cos_x / x + sin_x))
 
         Dmx = _D_calc(np.complex128(m), x, nstop + 1)
         Dx = _D_calc(np.complex128(1), x, nstop + 1)
@@ -243,8 +251,9 @@ def _cn_dn(m, x, n_pole):
     return np.conjugate(c), np.conjugate(d)
 
 
-@njit((complex128, float64, float64[:], int64), cache=True)
-def _S1_S2(m, x, mu, n_pole):
+@njit((complex128, float64, float64[:], int64, float64, complex128[:], complex128[:]), cache=True,
+      fastmath = USE_FASTMATH)
+def __S1_S2(m, x, mu, n_pole, normalization, S1, S2):
     """
     Calculate the scattering amplitude functions for spheres.
 
@@ -267,20 +276,31 @@ def _S1_S2(m, x, mu, n_pole):
     a, b = _an_bn(m, x, 0)
 
     nangles = len(mu)
-    S1 = np.zeros(nangles, dtype=np.complex128)
-    S2 = np.zeros(nangles, dtype=np.complex128)
 
     nstop = len(a)
     for k in range(nangles):
+        s1 = complex128(0)
+        s2 = complex128(0)
         pi_nm2 = 0
         pi_nm1 = 1
         for n in range(1, nstop):
             tau_nm1 = n * mu[k] * pi_nm1 - (n + 1) * pi_nm2
             if n_pole in (0, n):
-                S1[k] += (2 * n + 1) * (pi_nm1 * a[n - 1] + tau_nm1 * b[n - 1]) / (n + 1) / n
-                S2[k] += (2 * n + 1) * (tau_nm1 * a[n - 1] + pi_nm1 * b[n - 1]) / (n + 1) / n
+                s1 += (2 * n + 1) * (pi_nm1 * a[n - 1] + tau_nm1 * b[n - 1]) / (n + 1) / n
+                s2 += (2 * n + 1) * (tau_nm1 * a[n - 1] + pi_nm1 * b[n - 1]) / (n + 1) / n
             temp = pi_nm1
             pi_nm1 = ((2 * n + 1) * mu[k] * pi_nm1 - (n + 1) * pi_nm2) / n
             pi_nm2 = temp
+            
+        S1[k] = np.conjugate(s1)/normalization
+        S2[k] = np.conjugate(s2)/normalization
+        
+@guvectorize([(complex128[:], float64[:], float64[:], int64[:], float64[:], complex128[:], complex128[:])],
+             "(),(),(n),(),()->(n),(n)", cache=True, target = "parallel")
+def _S1_S2(m, x, mu, n_pole, normalization, S1, S2):
+    """guvectorize version of __S1_S2"""
+    __S1_S2(m[0], x[0], mu, n_pole[0], normalization[0], S1, S2)
+    
 
-    return [np.conjugate(S1), np.conjugate(S2)]
+    
+    

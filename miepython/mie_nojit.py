@@ -242,8 +242,9 @@ def _cn_dn(m, x, n_pole):
         d = d[:-1]
     return np.conjugate(c), np.conjugate(d)
 
-
-def _S1_S2(m, x, mu, n_pole):
+# we use numpy's vectorize, to simulate numba's guvectorize function
+@np.vectorize(signature="(),(),(n),(),()->(n),(n)")
+def __S1_S2(m, x, mu, n_pole, normalization):
     """
     Calculate the scattering amplitude functions for spheres.
 
@@ -270,21 +271,76 @@ def _S1_S2(m, x, mu, n_pole):
     a, b = _an_bn(m, x, 0)
 
     nangles = len(mu)
-    S1 = np.zeros(nangles, dtype=np.complex128)
-    S2 = np.zeros(nangles, dtype=np.complex128)
-
+    
+    S1 = np.empty(nangles, dtype=np.complex128)
+    S2 = np.empty(nangles, dtype=np.complex128)
+        
     nstop = len(a)
     for k in range(nangles):
         pi_nm2 = 0
         pi_nm1 = 1
+        # temporary s1 and s2 data
+        s1 = 0
+        s2 = 0
         for n in range(1, nstop):
             tau_nm1 = n * mu[k] * pi_nm1 - (n + 1) * pi_nm2
             if n_pole in (0, n):
-                S1[k] += (2 * n + 1) * (pi_nm1 * a[n - 1] + tau_nm1 * b[n - 1]) / (n + 1) / n
-                S2[k] += (2 * n + 1) * (tau_nm1 * a[n - 1] + pi_nm1 * b[n - 1]) / (n + 1) / n
+                s1 += (2 * n + 1) * (pi_nm1 * a[n - 1] + tau_nm1 * b[n - 1]) / (n + 1) / n
+                s2 += (2 * n + 1) * (tau_nm1 * a[n - 1] + pi_nm1 * b[n - 1]) / (n + 1) / n
 
             temp = pi_nm1
             pi_nm1 = ((2 * n + 1) * mu[k] * pi_nm1 - (n + 1) * pi_nm2) / n
             pi_nm2 = temp
+            
+        # normalize    
+        s1/=normalization
+        s2/=normalization
+        
+        # store results
+        S1[k] = np.conjugate(s1)
+        S2[k] = np.conjugate(s2)
+            
+    return S1,S2
 
-    return np.conjugate(S1), np.conjugate(S2)
+def _S1_S2(m, x, mu, n_pole, normalization, out = None):
+    """
+    Calculate the scattering amplitude functions for spheres.
+
+    The amplitude functions have been normalized so that when integrated
+    over all 4*pi solid angles, the integral will be qext*pi*x**2.
+
+    The normalization is controlled by `norm` and should be one of
+    ['albedo', 'one', '4pi', 'qext', 'qsca', 'bohren', or 'wiscombe']
+    The normalization describes the integral of the scattering phase
+    function over all 4𝜋 steradians.
+
+    The units are weird, sr**(-0.5)
+
+    Args:
+        m: the np.complex128 index of refraction of the sphere
+        x: the size parameter of the sphere
+        mu: the angles as cos(theta) to calculate scattering amplitudes
+        norm: (optional) string describing scattering function normalization
+        n_pole: return n_pole term from series (default=0 means include all terms)
+
+    Returns:
+        S1, S2: the scattering amplitudes at each angle mu [sr**(-0.5)]
+    """
+    S1,S2 = __S1_S2(m, x, mu, n_pole, normalization)
+    
+    # this is to make use of the out argument for compatibility with the jitted version. 
+    # it really only makes sense to use out argument in the jitted version  
+    if out is not None:
+        s1,s2 = out
+        if s1 is not None:
+            s1[...] = S1
+        else:
+            s1 = S1
+        if s2 is not None:
+            s2[...] = S2
+        else:
+            s2 = S2
+            
+        return s1, s2
+    else:
+        return S1,S2
