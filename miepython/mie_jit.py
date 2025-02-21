@@ -12,13 +12,16 @@ __all__ = (
 )
 
 #: whether to use fatsmath option in jitted finctions
-USE_FASTMATH = os.environ.get("MIEPYTHON_FASTMATH", "1").lower() == "1"
+NB_FASTMATH = os.environ.get("MIEPYTHON_FASTMATH", "1").lower() == "1"
 
 #: numba target option for vectorize and guvectorize functions
 NB_TARGET = os.environ.get("MIEPYTHON_TARGET", "parallel").lower()
 
+#:whether to cache compiled functions
+NB_CACHE = os.environ.get("MIEPYTHON_CACHE", "1").lower() == "1"
 
-@njit((complex128, int64), cache=True, fastmath = USE_FASTMATH)
+
+@njit((complex128, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _Lentz_Dn(z, N):
     """
     Compute the logarithmic derivative of the Ricatti-Bessel function.
@@ -51,7 +54,7 @@ def _Lentz_Dn(z, N):
     return -N / z + runratio
 
 
-@njit((complex128, int64, complex128[:]), cache=True, fastmath = USE_FASTMATH)
+@njit((complex128, int64, complex128[:]), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _D_downwards(z, N, D):
     """
     Compute the logarithmic derivative by downwards recurrence.
@@ -67,7 +70,7 @@ def _D_downwards(z, N, D):
         D[n - 1] = last_D
 
 
-@njit((complex128, int64, complex128[:]), cache=True, fastmath = USE_FASTMATH)
+@njit((complex128, int64, complex128[:]), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _D_upwards(z, N, D):
     """
     Compute the logarithmic derivative by upwards recurrence.
@@ -83,7 +86,7 @@ def _D_upwards(z, N, D):
         D[n] = 1 / (n / z - D[n - 1]) - n / z
 
 
-@njit((complex128, float64, int64), cache=True, fastmath = USE_FASTMATH)
+@njit((complex128, float64, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _D_calc(m, x, N):
     """
     Compute the logarithmic derivative of ψ_n(z) using the best method.
@@ -115,7 +118,7 @@ def _D_calc(m, x, N):
     return D[1:]
 
 
-@njit((complex128, float64, int64), cache=True, fastmath = USE_FASTMATH)
+@njit((complex128, float64, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _an_bn(m, x, n_pole):
     """
     Compute arrays of Mie coefficients a_n and b_n for a sphere.
@@ -188,7 +191,7 @@ def _an_bn(m, x, n_pole):
     return np.conjugate(a), np.conjugate(b)
 
 
-@njit((complex128, float64, int64), fastmath = USE_FASTMATH)
+@njit((complex128, float64, int64), fastmath = NB_FASTMATH)
 def _cn_dn(m, x, n_pole):
     """
     Calculate Mie coefficients c_n and d_n for the internal field of a sphere.
@@ -255,8 +258,8 @@ def _cn_dn(m, x, n_pole):
     return np.conjugate(c), np.conjugate(d)
 
 
-@njit((complex128, float64, float64[:], int64, float64, complex128[:], complex128[:]), cache=True,
-      fastmath = USE_FASTMATH)
+@njit((complex128, float64, float64[:], int64, float64, complex128[:], complex128[:]), cache=NB_CACHE,
+      fastmath = NB_FASTMATH)
 def _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2):
     """
     Calculate the scattering amplitude functions for spheres.
@@ -300,13 +303,13 @@ def _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2):
         S2[k] = np.conjugate(s2)/normalization
         
 @guvectorize([(complex128[:], float64[:], float64[:], int64[:], float64[:], complex128[:], complex128[:])],
-             "(),(),(n),(),()->(n),(n)", cache=True, target = NB_TARGET)
+             "(),(),(n),(),()->(n),(n)", cache=NB_CACHE, target = NB_TARGET)
 def _S1_S2(m, x, mu, n_pole, normalization, S1, S2):
     """guvectorize version of __S1_S2"""
     _S1_S2_scalar(m[0], x[0], mu, n_pole[0], normalization[0], S1, S2)
     
 
-@njit((complex128, float64), cache=True,fastmath = USE_FASTMATH)
+@njit((complex128, float64), cache=NB_CACHE,fastmath = NB_FASTMATH)
 def _small_conducting_mie(_m, x):
     """
     Calculate the efficiencies for a small conducting spheres.
@@ -345,7 +348,7 @@ def _small_conducting_mie(_m, x):
 
     return qext, qsca, qback, g    
 
-@njit((complex128, float64), cache=True,fastmath = USE_FASTMATH)
+@njit((complex128, float64), cache=NB_CACHE,fastmath = NB_FASTMATH)
 def _small_mie(m, x):
     """
     Calculate the efficiencies for a small sphere.
@@ -392,7 +395,7 @@ def _small_mie(m, x):
 
     return qext, qsca, qback, g
 
-@njit((complex128, float64, int64, int64), cache=True, fastmath = USE_FASTMATH)
+@njit((complex128, float64, int64, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _mie_scalar(m, x, n_pole, e_field):
     """
     Calculate the efficiencies for a sphere when both m and x are scalars.
@@ -465,7 +468,7 @@ def _mie_scalar(m, x, n_pole, e_field):
     return qext, qsca, qback, g
 
 @guvectorize([(complex128[:], float64[:],  int64[:],  int64[:], float64[:], float64[:], float64[:],float64[:])],
-             "(),(),(),()->(),(),(),()", cache=True, target = NB_TARGET, fastmath = USE_FASTMATH)
+             "(),(),(),()->(),(),(),()", cache=NB_CACHE, target = NB_TARGET, fastmath = NB_FASTMATH)
 def _mie(m, x, n_pole, e_field, qext, qsca,qback,g):
     """Vectorized version of _mie_scalar"""
     out = _mie_scalar(m[0],x[0],n_pole[0],e_field[0])
