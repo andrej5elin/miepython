@@ -197,7 +197,7 @@ def coefficients(m, x, n_pole=0, internal=False):
     return a, b
 
 
-def efficiencies_mx(m, x, n_pole=0, field="Electric" , out = None):
+def efficiencies_mx(m, x, n_pole=0, field="Electric"):
     """
     Computes scattering and extinction efficiencies for a spherical particle using Mie theory.
 
