@@ -48,11 +48,7 @@ import os
 
 USE_JIT = os.environ.get("MIEPYTHON_USE_JIT", "1").lower() == "1"
 
-if USE_JIT:
-    from .mie_jit import _an_bn, _cn_dn, _S1_S2, _D_calc, _mie, _mie_scalar
-
-else:
-    from .mie_nojit import _an_bn, _cn_dn, _S1_S2, _D_calc, _mie, _mie_scalar
+from .mie import _an_bn, _cn_dn, _S1_S2, _D_calc, _mie
 
 from .core import efficiencies, intensities, i_par, i_per, i_unpolarized
 from .core import efficiencies_mx, S1_S2, phase_matrix, coefficients, an_bn, cn_dn
@@ -74,6 +70,7 @@ __all__ = (
     "_cn_dn",
     "_S1_S2",
     "_D_calc",
+    "_mie"
 )
 
 __version__ = "3.0.0"

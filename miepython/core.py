@@ -35,7 +35,7 @@ Normalized Mie scattering intensities for angles mu=cos(theta)::
     mie.i_unpolarized(m, x, mu)
 """
 import numpy as np
-from miepython import _an_bn, _cn_dn, _S1_S2, _D_calc, _mie
+from miepython import _an_bn, _cn_dn, _S1_S2, _D_calc, _mie, USE_JIT
 
 
 # not really needed but included for clarity
@@ -353,8 +353,11 @@ def S1_S2(m, x, mu, norm="albedo", n_pole=0 , out = None):
         Numpy broadcasting rules apply over the first three positional 
         arguments with the following signature: '(),(),(n)->(n),(n)'
     """
-    # out must be a tuple of length 2 or None.
-    S1, S2 = (None,None) if out is None else out
+    if USE_JIT:
+        # out must be a tuple of length 2 or None.
+        S1, S2 = (None,None) if out is None else out
+    elif out is not None:
+        raise ValueError("The out argument is not supported while using USE_JIT == False")
     
 
     # make sure m, mu and x are arrays (even if they are scalars)
@@ -390,8 +393,12 @@ def S1_S2(m, x, mu, norm="albedo", n_pole=0 , out = None):
     # or the numpy.errstate context manager to switch them temporarily:
     
     # remove all warnings to deal with numba floating-point pitfalls
-    with np.errstate(all='ignore'): 
-        S1,S2 = _S1_S2(m, x, mu, n_pole, normalization, out = (S1,S2))
+    
+    if USE_JIT:
+        with np.errstate(all='ignore'): 
+            S1,S2 = _S1_S2(m, x, mu, n_pole, normalization, out = (S1,S2))
+    else:
+        S1,S2 = _S1_S2(m, x, mu, n_pole, normalization)
         
     return S1,S2
     
