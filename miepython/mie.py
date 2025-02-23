@@ -1,5 +1,8 @@
 """
-Low-level Mie calculations 
+Low-level Mie calculations (jitted or non-jitted)
+
+Whether we use jitted versions is determind by the USE_JIT variable. 
+To further tune the compilation process, we set NB_FASTMATH, and NB_TARGET options.
 """
 
 import numpy as np
@@ -38,6 +41,13 @@ def njit(*args,**kwargs):
         def _njit(f):
             return f
         return _njit
+    
+    
+#-----------------
+# Scalar functions
+#-----------------
+
+# Scalar functions work with scalar arguments.
 
 @njit((complex128, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _Lentz_Dn(z, N):
@@ -276,6 +286,11 @@ def _cn_dn(m, x, n_pole):
     return np.conjugate(c), np.conjugate(d)
 
 
+# the _S1_S2_scalar is optimized for speed. Therefore, we also
+# define the output arrays (S1,S2) to simplify vectorization and improve memory
+# handling. Again, for performance reasons, we make normalization a part of computiation
+
+
 @njit((complex128, float64, float64[:], int64, float64, complex128[:], complex128[:]), cache=NB_CACHE,
       fastmath = NB_FASTMATH)
 def _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2):
@@ -293,7 +308,7 @@ def _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2):
         mu: array of angles, cos(theta), to calculate scattering amplitudes
         norm_int: integer describing type of normalization
         n_pole: return n_pole term from series (default=0 means include all terms)
-        e_field: If True then Electric field (does not currently work)
+        
 
     Returns:
         S1, S2: the scattering amplitudes at each angle mu [sr**(-0.5)]
@@ -304,8 +319,8 @@ def _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2):
 
     nstop = len(a)
     for k in range(nangles):
-        s1 = complex128(0)
-        s2 = complex128(0)
+        s1 = complex128(0) # temporary data to improve memory handling
+        s2 = complex128(0) # temporary data to improve memory handling
         pi_nm2 = 0
         pi_nm1 = 1
         for n in range(1, nstop):
@@ -316,7 +331,8 @@ def _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2):
             temp = pi_nm1
             pi_nm1 = ((2 * n + 1) * mu[k] * pi_nm1 - (n + 1) * pi_nm2) / n
             pi_nm2 = temp
-            
+
+        #: normalize and store results
         S1[k] = np.conjugate(s1)/normalization
         S2[k] = np.conjugate(s2)/normalization
  
@@ -478,14 +494,21 @@ def _mie_scalar(m, x, n_pole, e_field):
             
     return qext, qsca, qback, g
 
+#---------------------
+# Vectorized functions
+#---------------------
+
    
-# we use numba to automatically vectorize the scalar functions
-# in case we skip numba, we rely on numpy's vectorize implementation.
-# Note that numpy's version is just for reference. The resulting arrays of both
+# In jittted version, we use numba to automatically vectorize the scalar functions
+# In case we skip numba, we rely on numpy's vectorize implementation.
+# Note that numpy's version is just meant for reference. The resulting arrays of both
 # implementations are identical in shape and content, but numpy's version
-# does not allow us to specify output arrays
+# does not allow us to specify output arrays. We deal with the difference 
+# in the high-level functions in the core module
 
 if USE_JIT:
+    # Vectrorize using numba's guvectorize 
+    
     @nb.guvectorize([(complex128[:], float64[:], float64[:], int64[:], float64[:], complex128[:], complex128[:])],
                  "(),(),(n),(),()->(n),(n)", cache=NB_CACHE, target = NB_TARGET)
     def _S1_S2(m, x, mu, n_pole, normalization, S1, S2):
@@ -502,6 +525,7 @@ if USE_JIT:
         qback[0] = out[2]
         g[0] = out[3]
 else:
+    # Vectorize using numpy's vectorize
     
     @np.vectorize(signature="(),(),(n),(),()->(n),(n)")
     def _S1_S2(m, x, mu, n_pole, normalization):
@@ -510,7 +534,7 @@ else:
         _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2)
         return S1, S2
 
-    @np.vectorize(signature = "(),()->(),(),(),()", excluded = {2, 'n_pole', 3, "e_field"})
-    def _mie(m, x, n_pole=0, e_field=True):
+    @np.vectorize(signature = "(),(),(),()->(),(),(),()")
+    def _mie(m, x, n_pole, e_field):
         """Vectorized version of _mie_scalar"""
         return _mie_scalar(m,x,n_pole,e_field)
