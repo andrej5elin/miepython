@@ -510,7 +510,7 @@ def _mie_scalar(m, x, n_pole, e_field):
    
 # In jittted version, we use numba to automatically vectorize the scalar functions
 # In case we skip numba, we rely on numpy's vectorize implementation.
-# Note that numpy's version is meant for reference and not for speed. 
+# Note that numpy's vectorization is meant for reference and not for speed. 
 # The resulting arrays of both implementations are identical in shape and content, 
 # but numpy's version does not allow us to specify output arrays. We deal with 
 # the implementation difference in the high-level functions in the core module

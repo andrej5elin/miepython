@@ -204,6 +204,8 @@ def efficiencies_mx(m, x, n_pole=0, field="Electric"):
     Supports array inputs for wavelength-dependent calculations of the refractive index
     and size parameter.
 
+    Numpy broadcasting rules apply for m and x.
+
     Args:
         m (complex or array-like):
             Complex refractive index of the sphere, defined as m = n - ik,
