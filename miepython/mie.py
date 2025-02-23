@@ -1,6 +1,10 @@
 """
 Low-level Mie calculations (jitted or non-jitted)
 
+Thew code here is develped and optimized for numba, however, an equivalent
+python-only code is obtained by disabling the compilation of scalar
+functions and replacing the numba vectorization with numpy's vectorization
+
 Whether we use jitted versions is determind by the USE_JIT variable. 
 To further tune the compilation process, we set NB_FASTMATH, and NB_TARGET options.
 """
@@ -33,8 +37,10 @@ NB_CACHE = os.environ.get("MIEPYTHON_CACHE", "1").lower() == "1"
 
 
 def njit(*args,**kwargs):
+    """Wrapper for numba's njit decorator. Based on the USE_JIT, we either
+    return a numba jit decorator, or a do-nothing decorator"""
     if USE_JIT:
-        # return a numba jit decorator
+        # return a numba njit decorator
         return nb.njit(*args,**kwargs)
     else:
         #return a "do nothing" decorator
@@ -42,12 +48,13 @@ def njit(*args,**kwargs):
             return f
         return _njit
     
-    
 #-----------------
 # Scalar functions
 #-----------------
 
-# Scalar functions work with scalar arguments.
+# Scalar functions work with scalar arguments and return scalar values.
+# An exception is the _S1_S2_scalar, which in addition to scalar argument, takes 
+# an array for the angles argument, and returns arrays.
 
 @njit((complex128, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _Lentz_Dn(z, N):
@@ -288,7 +295,9 @@ def _cn_dn(m, x, n_pole):
 
 # the _S1_S2_scalar is optimized for speed. Therefore, we also
 # define the output arrays (S1,S2) to simplify vectorization and improve memory
-# handling. Again, for performance reasons, we make normalization a part of computiation
+# handling. For performance reasons, we make normalization a part of computiation
+# This function is not meant to be used directly, instead, one uses a vectorized 
+# version _S1_S2 instead.
 
 
 @njit((complex128, float64, float64[:], int64, float64, complex128[:], complex128[:]), cache=NB_CACHE,
@@ -501,10 +510,10 @@ def _mie_scalar(m, x, n_pole, e_field):
    
 # In jittted version, we use numba to automatically vectorize the scalar functions
 # In case we skip numba, we rely on numpy's vectorize implementation.
-# Note that numpy's version is just meant for reference. The resulting arrays of both
-# implementations are identical in shape and content, but numpy's version
-# does not allow us to specify output arrays. We deal with the difference 
-# in the high-level functions in the core module
+# Note that numpy's version is meant for reference and not for speed. 
+# The resulting arrays of both implementations are identical in shape and content, 
+# but numpy's version does not allow us to specify output arrays. We deal with 
+# the implementation difference in the high-level functions in the core module
 
 if USE_JIT:
     # Vectrorize using numba's guvectorize 
