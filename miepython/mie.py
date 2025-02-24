@@ -11,7 +11,6 @@ To further tune the compilation process, we set NB_FASTMATH, and NB_TARGET optio
 
 import numpy as np
 import os
-from numba import complex128, float64, int64
 import numba as nb
 
 
@@ -43,11 +42,13 @@ if USE_DOUBLE == True:
     np_float = np.float64
     nb_complex = nb.complex128
     nb_float = nb.float64
+    nb_int = nb.int64
 else:
     np_complex = np.complex64
     np_float = np.float32
     nb_complex = nb.complex64
-    nb_float = nb.float32    
+    nb_float = nb.float32
+    nb_int = nb.int64 # no need to complicate with int32
 
 def njit(*args,**kwargs):
     """Wrapper for numba's njit decorator. Based on the USE_JIT, we either
@@ -69,7 +70,7 @@ def njit(*args,**kwargs):
 # An exception is the _S1_S2_scalar, which in addition to scalar argument, takes 
 # an array for the angles argument, and returns arrays.
 
-@njit((nb_complex, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_int), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _Lentz_Dn(z, N):
     """
     Compute the logarithmic derivative of the Ricatti-Bessel function.
@@ -102,7 +103,7 @@ def _Lentz_Dn(z, N):
     return -N / z + runratio
 
 
-@njit((nb_complex, int64, nb_complex[:]), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_int, nb_complex[:]), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _D_downwards(z, N, D):
     """
     Compute the logarithmic derivative by downwards recurrence.
@@ -118,7 +119,7 @@ def _D_downwards(z, N, D):
         D[n - 1] = last_D
 
 
-@njit((nb_complex, int64, nb_complex[:]), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_int, nb_complex[:]), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _D_upwards(z, N, D):
     """
     Compute the logarithmic derivative by upwards recurrence.
@@ -134,7 +135,7 @@ def _D_upwards(z, N, D):
         D[n] = 1 / (n / z - D[n - 1]) - n / z
         
 
-@njit((nb_complex, nb_float, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_float, nb_int), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _D_calc(m, x, N):
     """
     Compute the logarithmic derivative of ψ_n(z) using the best method.
@@ -166,7 +167,7 @@ def _D_calc(m, x, N):
     return D[1:]
 
 
-@njit((nb_complex, nb_float, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_float, nb_int), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _an_bn(m, x, n_pole):
     """
     Compute arrays of Mie coefficients a_n and b_n for a sphere.
@@ -239,7 +240,7 @@ def _an_bn(m, x, n_pole):
     return np.conjugate(a), np.conjugate(b)
 
 
-@njit((nb_complex, nb_float, int64), fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_float, nb_int), fastmath = NB_FASTMATH)
 def _cn_dn(m, x, n_pole):
     """
     Calculate Mie coefficients c_n and d_n for the internal field of a sphere.
@@ -313,7 +314,7 @@ def _cn_dn(m, x, n_pole):
 # version _S1_S2 instead.
 
 
-@njit((nb_complex, nb_float, nb_float[:], int64, nb_float, nb_complex[:], nb_complex[:]), cache=NB_CACHE,
+@njit((nb_complex, nb_float, nb_float[:], nb_int, nb_float, nb_complex[:], nb_complex[:]), cache=NB_CACHE,
       fastmath = NB_FASTMATH, boundscheck = False)
 def _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2):
     """
@@ -461,7 +462,7 @@ def _small_mie(m, x):
 
     return qext, qsca, qback, g
 
-@njit((nb_complex, nb_float, int64, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_float, nb_int, nb_int), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _mie_scalar(m, x, n_pole, e_field):
     """
     Calculate the efficiencies for a sphere when both m and x are scalars.
@@ -548,13 +549,13 @@ def _mie_scalar(m, x, n_pole, e_field):
 if USE_JIT:
     # Vectrorize using numba's guvectorize 
     
-    @nb.guvectorize([(nb_complex[:], nb_float[:], nb_float[:], int64[:], nb_float[:], nb_complex[:], nb_complex[:])],
+    @nb.guvectorize([(nb_complex[:], nb_float[:], nb_float[:], nb_int[:], nb_float[:], nb_complex[:], nb_complex[:])],
                  "(),(),(n),(),()->(n),(n)", cache=NB_CACHE, target = NB_TARGET)
     def _S1_S2(m, x, mu, n_pole, normalization, S1, S2):
         """guvectorize version of _S1_S2_scalar"""
         _S1_S2_scalar(m[0], x[0], mu, n_pole[0], normalization[0], S1, S2)    
 
-    @nb.guvectorize([(nb_complex[:], nb_float[:],  int64[:],  int64[:], nb_float[:], nb_float[:], nb_float[:],nb_float[:])],
+    @nb.guvectorize([(nb_complex[:], nb_float[:],  nb_int[:],  nb_int[:], nb_float[:], nb_float[:], nb_float[:],nb_float[:])],
                  "(),(),(),()->(),(),(),()", cache=NB_CACHE, target = NB_TARGET, fastmath = NB_FASTMATH)
     def _mie(m, x, n_pole, e_field, qext, qsca,qback,g):
         """Vectorized version of _mie_scalar"""
