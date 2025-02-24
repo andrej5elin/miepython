@@ -35,6 +35,19 @@ NB_TARGET = os.environ.get("MIEPYTHON_TARGET", "parallel").lower()
 #:whether to cache compiled functions
 NB_CACHE = os.environ.get("MIEPYTHON_CACHE", "1").lower() == "1"
 
+#: whether we use double precision
+USE_DOUBLE = os.environ.get("MIEPYTHON_USE_DOUBLE", "1").lower() == "1"
+
+if USE_DOUBLE == True:
+    np_complex = np.complex128
+    np_float = np.float64
+    nb_complex = nb.complex128
+    nb_float = nb.float64
+else:
+    np_complex = np.complex64
+    np_float = np.float32
+    nb_complex = nb.complex64
+    nb_float = nb.float32    
 
 def njit(*args,**kwargs):
     """Wrapper for numba's njit decorator. Based on the USE_JIT, we either
@@ -56,7 +69,7 @@ def njit(*args,**kwargs):
 # An exception is the _S1_S2_scalar, which in addition to scalar argument, takes 
 # an array for the angles argument, and returns arrays.
 
-@njit((complex128, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _Lentz_Dn(z, N):
     """
     Compute the logarithmic derivative of the Ricatti-Bessel function.
@@ -89,7 +102,7 @@ def _Lentz_Dn(z, N):
     return -N / z + runratio
 
 
-@njit((complex128, int64, complex128[:]), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, int64, nb_complex[:]), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _D_downwards(z, N, D):
     """
     Compute the logarithmic derivative by downwards recurrence.
@@ -105,7 +118,7 @@ def _D_downwards(z, N, D):
         D[n - 1] = last_D
 
 
-@njit((complex128, int64, complex128[:]), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, int64, nb_complex[:]), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _D_upwards(z, N, D):
     """
     Compute the logarithmic derivative by upwards recurrence.
@@ -119,9 +132,9 @@ def _D_upwards(z, N, D):
     D[1] = -1 / z + (1 - exp) / ((1 - exp) / z - 1j * (1 + exp))
     for n in range(2, N):
         D[n] = 1 / (n / z - D[n - 1]) - n / z
+        
 
-
-@njit((complex128, float64, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_float, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _D_calc(m, x, N):
     """
     Compute the logarithmic derivative of ψ_n(z) using the best method.
@@ -134,7 +147,7 @@ def _D_calc(m, x, N):
     The zero-based array, D[:], is shifted so that D[0] = D₁(z) = ψ₁'(z)/ψ₁(z)
 
     Args:
-        m: the np.complex128 index of refraction of the sphere
+        m: the np_complex index of refraction of the sphere
         x: the size parameter of the sphere
         N: order of Ricatti-Bessel function
 
@@ -143,8 +156,8 @@ def _D_calc(m, x, N):
     """
     n = m.real
     kappa = np.abs(m.imag)
-    D = np.zeros(N + 1, dtype = np.complex128)
-    mx = np.complex128(m * x)  # ensure complex
+    D = np.zeros(N + 1, dtype = np_complex)
+    mx = np_complex(m * x)  # ensure complex
 
     if n < 1 or n > 10 or kappa > 10 or x * kappa >= 3.9 - 10.8 * n + 13.78 * n**2:
         _D_downwards(mx, N, D)
@@ -153,7 +166,7 @@ def _D_calc(m, x, N):
     return D[1:]
 
 
-@njit((complex128, float64, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_float, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _an_bn(m, x, n_pole):
     """
     Compute arrays of Mie coefficients a_n and b_n for a sphere.
@@ -183,16 +196,16 @@ def _an_bn(m, x, n_pole):
     else:
         nstop = n_pole + 1
 
-    a = np.zeros(nstop, dtype=np.complex128)
-    b = np.zeros(nstop, dtype=np.complex128)
-    
+    a = np.zeros(nstop, dtype=np_complex)
+    b = np.zeros(nstop, dtype=np_complex)
+        
     sin_x = np.sin(x)
     cos_x = np.cos(x)
 
     psi_nm1 = sin_x  # nm1 = n-1 = 0
     psi_n = psi_nm1 / x - cos_x
-    xi_nm1 = np.complex128(psi_nm1 + 1j * cos_x)
-    xi_n = np.complex128(psi_n + 1j * (cos_x / x + sin_x))
+    xi_nm1 = np_complex(psi_nm1 + 1j * cos_x)
+    xi_n = np_complex(psi_n + 1j * (cos_x / x + sin_x))
 
     if m.real > 0.0:
         D = _D_calc(m, x, nstop + 1)
@@ -226,13 +239,13 @@ def _an_bn(m, x, n_pole):
     return np.conjugate(a), np.conjugate(b)
 
 
-@njit((complex128, float64, int64), fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_float, int64), fastmath = NB_FASTMATH)
 def _cn_dn(m, x, n_pole):
     """
     Calculate Mie coefficients c_n and d_n for the internal field of a sphere.
 
     Args:
-        m (np.complex128): Refractive index of the sphere relative to the surrounding medium.
+        m (np_complex): Refractive index of the sphere relative to the surrounding medium.
         x (float): Size parameter of the sphere (2πr/λ).
         n_pole (int): Number of terms to calculate (n_pole).
 
@@ -248,8 +261,8 @@ def _cn_dn(m, x, n_pole):
     else:
         nstop = n_pole + 1
 
-    c = np.zeros(nstop, dtype=np.complex128)
-    d = np.zeros(nstop, dtype=np.complex128)
+    c = np.zeros(nstop, dtype=np_complex)
+    d = np.zeros(nstop, dtype=np_complex)
     
     # so that we compute cos(x) and sin(x) only once
     sin_x = np.sin(x) 
@@ -263,11 +276,11 @@ def _cn_dn(m, x, n_pole):
         psi_nm1_mx = np.sin(mx)  # nm1 = n-1 = 0
         psi_n_mx = psi_nm1_mx / mx - np.cos(mx)
 
-        xi_nm1 = np.complex128(psi_nm1 + 1j * cos_x)
-        xi_n = np.complex128(psi_n + 1j * (cos_x / x + sin_x))
+        xi_nm1 = np_complex(psi_nm1 + 1j * cos_x)
+        xi_n = np_complex(psi_n + 1j * (cos_x / x + sin_x))
 
-        Dmx = _D_calc(np.complex128(m), x, nstop + 1)
-        Dx = _D_calc(np.complex128(1), x, nstop + 1)
+        Dmx = _D_calc(np_complex(m), x, nstop + 1)
+        Dx = _D_calc(np_complex(1), x, nstop + 1)
 
         for n in range(1, nstop + 1):
             common = (psi_n / psi_n_mx) * ((Dx[n - 1] + n / x) * xi_n - xi_nm1)
@@ -300,8 +313,8 @@ def _cn_dn(m, x, n_pole):
 # version _S1_S2 instead.
 
 
-@njit((complex128, float64, float64[:], int64, float64, complex128[:], complex128[:]), cache=NB_CACHE,
-      fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_float, nb_float[:], int64, nb_float, nb_complex[:], nb_complex[:]), cache=NB_CACHE,
+      fastmath = NB_FASTMATH, boundscheck = False)
 def _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2):
     """
     Calculate the scattering amplitude functions for spheres.
@@ -328,24 +341,41 @@ def _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2):
 
     nstop = len(a)
     for k in range(nangles):
-        s1 = complex128(0) # temporary data to improve memory handling
-        s2 = complex128(0) # temporary data to improve memory handling
-        pi_nm2 = 0
-        pi_nm1 = 1
-        for n in range(1, nstop):
-            tau_nm1 = n * mu[k] * pi_nm1 - (n + 1) * pi_nm2
+        s1 = np_complex(0.) # temporary data to improve memory handling
+        s2 = np_complex(0.) # temporary data to improve memory handling
+        pi_nm2 = nb_float(0.)
+        pi_nm1 = nb_float(1.)
+        
+        muk = mu[k] 
+        
+        for i in range(nstop-1):
+            n = 1+i
+            
+            ai = a[i]
+            bi = b[i]
+
+            tau_nm1 = n * muk * pi_nm1 - (n + 1) * pi_nm2
+            
             if n_pole in (0, n):
-                s1 += (2 * n + 1) * (pi_nm1 * a[n - 1] + tau_nm1 * b[n - 1]) / (n + 1) / n
-                s2 += (2 * n + 1) * (tau_nm1 * a[n - 1] + pi_nm1 * b[n - 1]) / (n + 1) / n
+                scale = (2 * n + 1)/ (n + 1) / n
+                scale_pi = pi_nm1 * scale
+                scale_tau = tau_nm1 * scale
+                
+                s1 += scale_pi * ai
+                s1 += scale_tau * bi
+                s2 += scale_pi * bi
+                s2 += scale_tau * ai                
+                
             temp = pi_nm1
-            pi_nm1 = ((2 * n + 1) * mu[k] * pi_nm1 - (n + 1) * pi_nm2) / n
+            pi_nm1 = ((2 * n + 1) * muk * pi_nm1 - (n + 1) * pi_nm2) / n
             pi_nm2 = temp
 
         #: normalize and store results
         S1[k] = np.conjugate(s1)/normalization
         S2[k] = np.conjugate(s2)/normalization
- 
-@njit((complex128, float64), cache=NB_CACHE,fastmath = NB_FASTMATH)
+
+    
+@njit((nb_complex, nb_float), cache=NB_CACHE,fastmath = NB_FASTMATH)
 def _small_conducting_mie(_m, x):
     """
     Calculate the efficiencies for a small conducting spheres.
@@ -384,7 +414,7 @@ def _small_conducting_mie(_m, x):
 
     return qext, qsca, qback, g    
 
-@njit((complex128, float64), cache=NB_CACHE,fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_float), cache=NB_CACHE,fastmath = NB_FASTMATH)
 def _small_mie(m, x):
     """
     Calculate the efficiencies for a small sphere.
@@ -431,7 +461,7 @@ def _small_mie(m, x):
 
     return qext, qsca, qback, g
 
-@njit((complex128, float64, int64, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
+@njit((nb_complex, nb_float, int64, int64), cache=NB_CACHE, fastmath = NB_FASTMATH)
 def _mie_scalar(m, x, n_pole, e_field):
     """
     Calculate the efficiencies for a sphere when both m and x are scalars.
@@ -518,13 +548,13 @@ def _mie_scalar(m, x, n_pole, e_field):
 if USE_JIT:
     # Vectrorize using numba's guvectorize 
     
-    @nb.guvectorize([(complex128[:], float64[:], float64[:], int64[:], float64[:], complex128[:], complex128[:])],
+    @nb.guvectorize([(nb_complex[:], nb_float[:], nb_float[:], int64[:], nb_float[:], nb_complex[:], nb_complex[:])],
                  "(),(),(n),(),()->(n),(n)", cache=NB_CACHE, target = NB_TARGET)
     def _S1_S2(m, x, mu, n_pole, normalization, S1, S2):
         """guvectorize version of _S1_S2_scalar"""
         _S1_S2_scalar(m[0], x[0], mu, n_pole[0], normalization[0], S1, S2)    
 
-    @nb.guvectorize([(complex128[:], float64[:],  int64[:],  int64[:], float64[:], float64[:], float64[:],float64[:])],
+    @nb.guvectorize([(nb_complex[:], nb_float[:],  int64[:],  int64[:], nb_float[:], nb_float[:], nb_float[:],nb_float[:])],
                  "(),(),(),()->(),(),(),()", cache=NB_CACHE, target = NB_TARGET, fastmath = NB_FASTMATH)
     def _mie(m, x, n_pole, e_field, qext, qsca,qback,g):
         """Vectorized version of _mie_scalar"""
@@ -538,8 +568,8 @@ else:
     
     @np.vectorize(signature="(),(),(n),(),()->(n),(n)")
     def _S1_S2(m, x, mu, n_pole, normalization):
-        S1 = np.empty((len(mu),), complex)
-        S2 = np.empty((len(mu),), complex)
+        S1 = np.empty((len(mu),), np_complex)
+        S2 = np.empty((len(mu),), np_complex)
         _S1_S2_scalar(m, x, mu, n_pole, normalization, S1, S2)
         return S1, S2
 
