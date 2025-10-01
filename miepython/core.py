@@ -259,11 +259,13 @@ def efficiencies_mx(m, x, n_pole=0, field="Electric"):
         >>> mie.efficiencies(m_array, x_array, 0)
         (qext: [1.81, 2.15], qsca: [1.72, 1.95], qback: [0.27, 0.31], g: [0.63, 0.70])
     """
+    
     # ensure imaginary part of refractive index is negative
     if np.isscalar(m):
         m = np.conj(m) if np.imag(m) > 0 else m
     else:
         m = np.where(np.imag(m) > 0, np.conj(m), m)
+    m = np.asarray(m)
     
     if field == "Electric":
         with np.errstate(all='ignore'): 
@@ -376,6 +378,8 @@ def S1_S2(m, x, mu, norm="albedo", n_pole=0 , out = None):
 
     # normalization is part of S1,S2 calculation, so we compute it first
     normalization = normalization_factor(m, x, norm)
+    
+    #print (normalization.dtype, mu.dtype, x.dtype, m.dtype)
     
     # enforce 1D
     if mu.ndim == 0:
